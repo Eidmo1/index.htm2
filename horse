@@ -1,0 +1,70 @@
+const express = require('express');
+const TelegramBot = require('node-telegram-bot-api');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// التوكن الخاص بك
+const token = '8796443947:AAHuPtx3lIemx2trMsu-LGbj6MOpoap3hJs';
+const bot = new TelegramBot(token, { polling: true });
+
+// رابط موقعك بعد الرفع (استبدله برابط الاستضافة الخاص بك لاحقاً)
+const webAppUrl = 'https://your-mini-app-url.com'; 
+
+// قاعدة بيانات وهمية في الذاكرة للتوضيح (في الإنتاج استخدم MongoDB)
+let usersDatabase = {};
+
+// 1. استقبال أمر /start من التلغرام
+bot.onText(/\/start(.*)/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const user = msg.from;
+    const referrerId = match[1] ? match[1].trim() : null; // جلب كود الإحالة إن وجد
+
+    // تسجيل المستخدم الجديد
+    if (!usersDatabase[user.id]) {
+        usersDatabase[user.id] = {
+            id: user.id,
+            username: user.username || 'NoUsername',
+            balance: 0.00,
+            hashRate: 0.1,
+            energy: 100,
+            referrals: 0,
+            referredBy: referrerId
+        };
+        // إذا جاء عن طريق إحالة، نكافئ صاحب الإحالة
+        if (referrerId && usersDatabase[referrerId]) {
+            usersDatabase[referrerId].referrals += 1;
+            usersDatabase[referrerId].balance += 10.00; // مكافأة إحالة
+        }
+    }
+
+    bot.sendMessage(chatId, `أهلاً بك ${user.first_name} في بوت التعدين! ✨\nاضغط على الزر أدناه لفتح الواجهة وبدء التعدين:`, {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: 'افتح تطبيق التعدين 🚀', web_app: { url: `${webAppUrl}?user_id=${user.id}` } }]
+            ]
+        }
+    });
+});
+
+// 2. APIs لخدمة الواجهة الأمامية (Frontend)
+app.get('/api/user/:id', (req, res) => {
+    const userId = req.params.id;
+    const userData = usersDatabase[userId] || { id: userId, username: 'Guest', balance: 0, hashRate: 0.1, energy: 100, referrals: 0 };
+    res.json(userData);
+});
+
+app.post('/api/claim', (req, res) => {
+    const { userId, amount } = req.body;
+    if (usersDatabase[userId]) {
+        usersDatabase[userId].balance += parseFloat(amount);
+        return res.json({ success: true, newBalance: usersDatabase[userId].balance });
+    }
+    res.status(404).json({ error: 'User not found' });
+});
+
+// تشغيل السيرفر
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Backend server running on port ${PORT}`));
